@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QSettings
 from gitignore_parser import parse_gitignore
+import fnmatch
 
 # --- КОНФИГУРАЦИЯ ---
 DEFAULT_IGNORE = [
@@ -30,25 +31,104 @@ def get_gitignore_matcher(base_path: Path):
     return lambda p: False
 
 
-def get_project_structure(root_path: Path, ignored_patterns: list, gitignore_matcher) -> str:
+def get_gitattributes_matcher(base_path: Path):
+    """
+    Находит и парсит файл .gitattributes, возвращая функцию-матчер.
+    Матчер возвращает True, если файл должен быть проигнорирован.
+    Корректно обрабатывает linguist-generated, linguist-generated=true,
+    -linguist-generated и linguist-generated=false.
+    """
+    gitattributes_path = base_path / '.gitattributes'
+    if not gitattributes_path.is_file():
+        return lambda p: False
+
+    # Списки для правил включения и исключения.
+    # Обрабатываем их в порядке появления в файле, чтобы последнее правило для того же файла имело приоритет.
+    rules = [] 
+
+    try:
+        with open(gitattributes_path, 'r', encoding='utf-8', errors='ignore') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                
+                parts = line.split()
+                if len(parts) < 2:
+                    continue
+
+                pattern = parts[0]
+                attributes = parts[1:]
+
+                is_ignore_rule = None
+                
+                for attr in attributes:
+                    if attr in ("linguist-generated", "linguist-generated=true", "linguist-vendored", "linguist-vendored=true"):
+                        is_ignore_rule = True
+                    elif attr in ("-linguist-generated", "linguist-generated=false", "-linguist-vendored", "linguist-vendored=false"):
+                        is_ignore_rule = False
+
+                if is_ignore_rule is not None:
+                    rules.append((pattern, is_ignore_rule))
+
+    except Exception as e:
+        print(f"Warning: Could not parse .gitattributes file: {e}")
+        return lambda p: False
+
+    if not rules:
+        return lambda p: False
+
+    def matcher(file_path: Path) -> bool:
+        """
+        Проверяет, должен ли файл быть проигнорирован, учитывая порядок правил.
+        """
+        try:
+            relative_path_str = str(file_path.relative_to(base_path).as_posix())
+        except ValueError:
+            return False
+
+        last_match = None
+        # Итерируемся по всем правилам. Последнее совпавшее правило побеждает.
+        for pattern, is_ignore in rules:
+            match = False
+            if fnmatch.fnmatch(relative_path_str, pattern):
+                match = True
+            # Проверка для директорий (например, "docs/")
+            elif pattern.endswith('/') and relative_path_str.startswith(pattern):
+                match = True
+            
+            if match:
+                last_match = is_ignore
+
+        # Если было найдено совпадение, возвращаем его результат (True для игнора, False для исключения).
+        # Если совпадений не было (last_match is None), то не игнорируем (возвращаем False).
+        return last_match if last_match is not None else False
+
+    return matcher
+
+
+def get_project_structure(root_path: Path, ignored_patterns: list, gitignore_matcher, gitattributes_matcher) -> str:
     tree_lines = []
-    
+
     def recurse(current_path: Path, prefix: str = ""):
-        if gitignore_matcher(current_path) or any(part in str(current_path.relative_to(root_path)) for part in ignored_patterns):
+        if gitignore_matcher(current_path) or gitattributes_matcher(current_path) or any(part in str(current_path.relative_to(root_path)) for part in ignored_patterns):
             return
-        
+
         try:
             items = sorted(list(current_path.iterdir()), key=lambda p: (p.is_file(), p.name.lower()))
         except (OSError, PermissionError):
             return
-
-        valid_items = [item for item in items if not (item.name in ignored_patterns or gitignore_matcher(item))]
+        
+        valid_items = [
+            item for item in items 
+            if not (item.name in ignored_patterns or gitignore_matcher(item) or gitattributes_matcher(item))
+        ]
 
         for i, item in enumerate(valid_items):
             is_last = i == (len(valid_items) - 1)
             connector = "└── " if is_last else "├── "
             tree_lines.append(f"{prefix}{connector}{item.name}")
-            
+
             if item.is_dir():
                 new_prefix = prefix + ("    " if is_last else "│   ")
                 recurse(item, new_prefix)
@@ -68,12 +148,16 @@ def create_llm_context(
 
     progress_callback.emit("- Parsing .gitignore...")
     gitignore_matcher = get_gitignore_matcher(repo_path)
+    
+    progress_callback.emit("- Parsing .gitattributes...")
+    gitattributes_matcher = get_gitattributes_matcher(repo_path)
+    
     all_exclusions = DEFAULT_IGNORE + exclude
     output_parts = []
-    
+
     if include_tree:
         progress_callback.emit("- Building project tree...")
-        tree_structure = get_project_structure(repo_path, all_exclusions, gitignore_matcher)
+        tree_structure = get_project_structure(repo_path, all_exclusions, gitignore_matcher, gitattributes_matcher)
         output_parts.append("Project file structure:\n=======================\n```\n" + tree_structure + "\n```\n")
 
     output_parts.append("File contents:\n==============")
@@ -90,7 +174,7 @@ def create_llm_context(
     for file_path in sorted(list(files_to_process_set)):
         if file_path.is_file():
             path_parts = {p.name for p in file_path.parents} | {file_path.name}
-            if any(part in all_exclusions for part in path_parts) or gitignore_matcher(file_path):
+            if any(part in all_exclusions for part in path_parts) or gitignore_matcher(file_path) or gitattributes_matcher(file_path):
                 continue
             final_file_list.append(file_path)
 
@@ -101,20 +185,19 @@ def create_llm_context(
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read(max_chars_per_file + 1)
-            
+
             truncated = False
             if len(content) > max_chars_per_file:
                 content = content[:max_chars_per_file]
                 truncated = True
 
             lang = file_path.suffix.lstrip('.') if file_path.suffix else 'text'
-            
+
             output_parts.append(f"--- START OF FILE: {relative_path_str} ---")
             output_parts.append(f"```{lang}\n{content.strip()}")
             if truncated:
                 output_parts.append("\n\n[... content truncated due to size limit ...]")
-            
-            # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+
             output_parts.append(f"```\n--- END OF FILE: {relative_path_str} ---\n")
 
         except Exception as e:
@@ -148,7 +231,7 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("MyCompany", "RepoCopier")
-        self.setWindowTitle('Repo Copier для LLM v2.4')
+        self.setWindowTitle('Repo Copier для LLM v2.5')
         self.setGeometry(100, 100, 750, 650)
         self.initUI()
         self.load_settings()
@@ -159,7 +242,7 @@ class App(QMainWindow):
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
-        
+
         path_group = QGroupBox("1. Выберите папку проекта")
         path_layout = QHBoxLayout()
         self.path_edit = QLineEdit()
@@ -171,12 +254,12 @@ class App(QMainWindow):
 
         settings_group = QGroupBox("2. Настройте фильтры")
         settings_layout = QVBoxLayout()
-        
+
         ext_layout = QHBoxLayout()
         ext_layout.addWidget(QLabel("Включить расширения:"))
         self.ext_edit = QLineEdit()
         ext_layout.addWidget(self.ext_edit)
-        
+
         include_files_layout = QHBoxLayout()
         include_files_layout.addWidget(QLabel("Включить файлы (по имени):"))
         self.include_files_edit = QLineEdit()
@@ -197,7 +280,7 @@ class App(QMainWindow):
         limit_layout.addStretch()
 
         self.tree_checkbox = QCheckBox("Включить дерево файлов в полный вывод")
-        
+
         settings_layout.addLayout(ext_layout)
         settings_layout.addLayout(include_files_layout)
         settings_layout.addLayout(exclude_layout)
@@ -223,7 +306,7 @@ class App(QMainWindow):
         self.log_text.setReadOnly(True)
         log_layout.addWidget(self.log_text)
         log_group.setLayout(log_layout)
-        
+
         main_layout.addWidget(path_group)
         main_layout.addWidget(settings_group)
         main_layout.addWidget(action_group)
@@ -242,11 +325,11 @@ class App(QMainWindow):
         exclude = self.exclude_edit.text().split()
         include_tree = self.tree_checkbox.isChecked()
         max_chars = self.limit_spinbox.value()
-        
+
         self.log_text.clear()
         self.log_text.append("🚀 Запускаю полную обработку...")
         self.set_ui_enabled(False)
-        
+
         self.thread = QThread()
         self.worker = Worker(repo_path, extensions, include_files, exclude, include_tree, max_chars)
         self.worker.moveToThread(self.thread)
@@ -271,7 +354,7 @@ class App(QMainWindow):
         self.settings.setValue("exclusions", self.exclude_edit.text())
         self.settings.setValue("limit_per_file", self.limit_spinbox.value())
         self.settings.setValue("include_tree", self.tree_checkbox.isChecked())
-    
+
     def browse_folder(self):
         start_path = self.path_edit.text() if self.path_edit.text() else str(Path.home())
         folder_path = QFileDialog.getExistingDirectory(self, "Выберите папку проекта", start_path)
@@ -291,7 +374,8 @@ class App(QMainWindow):
         all_exclusions = DEFAULT_IGNORE + exclude
         try:
             gitignore_matcher = get_gitignore_matcher(repo_path)
-            tree = get_project_structure(repo_path, all_exclusions, gitignore_matcher)
+            gitattributes_matcher = get_gitattributes_matcher(repo_path)
+            tree = get_project_structure(repo_path, all_exclusions, gitignore_matcher, gitattributes_matcher)
             pyperclip.copy(tree)
             self.log_text.append("\n" + tree)
             self.log_text.append(f"\n✅ Дерево проекта скопировано в буфер обмена ({len(tree)} символов).")
