@@ -1,0 +1,38 @@
+{
+  "include_ext": [
+    ".py",
+    ".js",
+    ".html",
+    ".css",
+    ".md",
+    ".txt",
+    ".json",
+    ".yml",
+    ".yaml"
+  ],
+  "include_files": [
+    "Dockerfile",
+    "docker-compose.yml",
+    "requirements.txt",
+    "package.json",
+    "LICENSE"
+  ],
+  "exclude_folders": [
+    "docs",
+    "assets",
+    "temp",
+    "logs"
+  ],
+  "exclude_files": [
+    "package-lock.json",
+    "yarn.lock"
+  ],
+  "exclude_ext": [
+    ".log",
+    ".tmp",
+    ".bak",
+    ".swp"
+  ],
+  "include_tree": true,
+  "max_chars_per_file": 100000
+}
