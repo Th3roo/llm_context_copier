@@ -1,0 +1,17 @@
+[project]
+name = "llm-context-copier"
+version = "0.1.0"
+description = "A tool to copy project context for LLMs"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.4.0",
+    "pyperclip>=1.8.2",
+    "gitignore-parser>=0.1.0",
+]
+
+[project.scripts]
+llm-context-copier = "llm_context_copier.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

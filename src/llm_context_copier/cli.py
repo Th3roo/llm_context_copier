@@ -3,7 +3,7 @@ import json
 import sys
 from pathlib import Path
 import pyperclip
-from context_generator import create_llm_context
+from .context_generator import create_llm_context
 
 def progress_callback(message):
     """Простой колбэк для вывода прогресса в консоль."""
