@@ -5,7 +5,7 @@ import pyperclip
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QFileDialog, QTextEdit,
-    QCheckBox, QGroupBox, QStatusBar, QSpinBox, QFormLayout
+    QCheckBox, QGroupBox, QStatusBar, QSpinBox, QFormLayout, QComboBox
 )
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QSettings
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
@@ -60,11 +60,12 @@ class App(QMainWindow):
 
         path_group = QGroupBox("1. Укажите или перетащите папку проекта")
         path_layout = QHBoxLayout()
-        self.path_edit = QLineEdit()
+        self.path_edit = QComboBox()
+        self.path_edit.setEditable(True)
         self.path_edit.setPlaceholderText("Перетащите папку сюда или нажмите 'Обзор'")
         browse_btn = QPushButton("Обзор...")
         browse_btn.clicked.connect(self.browse_folder)
-        path_layout.addWidget(self.path_edit)
+        path_layout.addWidget(self.path_edit, 1)
         path_layout.addWidget(browse_btn)
         path_group.setLayout(path_layout)
 
@@ -141,6 +142,7 @@ class App(QMainWindow):
         exclude_ext = [e if e.startswith('.') else '.' + e for e in self.exclude_ext_edit.text().split() if e]
         include_tree = self.tree_checkbox.isChecked()
         max_chars = self.limit_spinbox.value()
+        self.update_path_history(repo_path)
         self.log_text.clear()
         self.log_text.append("🚀 Запускаю полную обработку...")
         self.set_ui_enabled(False)
@@ -154,7 +156,11 @@ class App(QMainWindow):
         self.thread.start()
 
     def load_settings(self):
-        self.path_edit.setText(self.settings.value("last_path", str(Path.home())))
+        history = self.settings.value("path_history", [])
+        if isinstance(history, str):  # QSettings sometimes returns a single string if only one item
+            history = [history]
+        self.path_edit.addItems(history)
+        self.path_edit.setCurrentText(self.settings.value("last_path", str(Path.home())))
         self.ext_edit.setText(self.settings.value("include_ext", ".py .js .html .css .md .txt .json"))
         self.include_files_edit.setText(self.settings.value("include_files", "LICENSE Dockerfile .env.example"))
         self.exclude_folders_edit.setText(self.settings.value("exclude_folders", "docs assets temp"))
@@ -165,7 +171,9 @@ class App(QMainWindow):
         self.exact_tokens_checkbox.setChecked(self.settings.value("exact_tokens", False, type=bool))
 
     def save_settings(self):
-        self.settings.setValue("last_path", self.path_edit.text())
+        self.settings.setValue("last_path", self.path_edit.currentText())
+        history = [self.path_edit.itemText(i) for i in range(self.path_edit.count())]
+        self.settings.setValue("path_history", history)
         self.settings.setValue("include_ext", self.ext_edit.text())
         self.settings.setValue("include_files", self.include_files_edit.text())
         self.settings.setValue("exclude_folders", self.exclude_folders_edit.text())
@@ -176,13 +184,28 @@ class App(QMainWindow):
         self.settings.setValue("exact_tokens", self.exact_tokens_checkbox.isChecked())
 
     def browse_folder(self):
-        start_path = self.path_edit.text() if self.path_edit.text() and Path(self.path_edit.text()).is_dir() else str(Path.home())
+        current_path = self.path_edit.currentText()
+        start_path = current_path if current_path and Path(current_path).is_dir() else str(Path.home())
         folder_path = QFileDialog.getExistingDirectory(self, "Выберите папку проекта", start_path)
         if folder_path:
-            self.path_edit.setText(folder_path)
+            self.path_edit.setCurrentText(folder_path)
+
+    def update_path_history(self, new_path):
+        if not new_path:
+            return
+        # Find if it exists and remove to move to top
+        for i in range(self.path_edit.count()):
+            if self.path_edit.itemText(i) == new_path:
+                self.path_edit.removeItem(i)
+                break
+        self.path_edit.insertItem(0, new_path)
+        self.path_edit.setCurrentIndex(0)
+        # Limit history to 10
+        while self.path_edit.count() > 10:
+            self.path_edit.removeItem(self.path_edit.count() - 1)
 
     def validate_path(self):
-        repo_path = self.path_edit.text()
+        repo_path = self.path_edit.currentText()
         if not repo_path or not Path(repo_path).is_dir():
             self.status_bar.showMessage("❌ Ошибка: Укажите корректный путь к папке проекта.")
             return None
@@ -267,6 +290,6 @@ class App(QMainWindow):
         if urls:
             path = urls[0].toLocalFile()
             if os.path.isdir(path):
-                self.path_edit.setText(path)
+                self.path_edit.setCurrentText(path)
             else:
                 self.status_bar.showMessage("❌ Пожалуйста, перетащите папку, а не файл.")
