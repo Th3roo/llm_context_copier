@@ -1,4 +1,5 @@
 from pathlib import Path
+import fnmatch
 from .file_utils import get_gitignore_matcher, get_gitattributes_matcher, get_project_structure
 
 # --- КОНФИГУРАЦИЯ ---
@@ -10,10 +11,35 @@ DEFAULT_IGNORE_PATTERNS = [
 ]
 # --- КОНЕЦ КОНФИГУРАЦИИ ---
 
+def load_presets(preset_names: list[str]) -> list[str]:
+    """
+    Загружает паттерны из указанных пресетов.
+    """
+    patterns = []
+    presets_dir = Path(__file__).parent / "presets"
+    for name in preset_names:
+        # Пытаемся найти встроенный пресет
+        preset_path = presets_dir / f"{name.lower()}.gitignore"
+        if not preset_path.exists():
+            # Пытаемся найти кастомный пресет по абсолютному или относительному пути
+            preset_path = Path(name)
+        
+        if preset_path.is_file():
+            try:
+                with open(preset_path, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            patterns.append(line)
+            except Exception as e:
+                print(f"Warning: Could not load preset {name}: {e}")
+    return patterns
+
 def create_llm_context(
     repo_path_str: str, include_ext: list, include_files: list,
     exclude_folders: list, exclude_files: list, exclude_ext: list,
-    include_tree: bool, max_chars_per_file: int, progress_callback
+    include_tree: bool, max_chars_per_file: int, progress_callback,
+    selected_presets: list = None
 ) -> str:
     """
     Собирает контекст из репозитория для LLM.
@@ -34,7 +60,16 @@ def create_llm_context(
     send_progress("- Parsing .gitattributes...")
     gitattributes_matcher = get_gitattributes_matcher(repo_path)
     
-    all_excluded_folders = DEFAULT_IGNORE_PATTERNS + exclude_folders
+    preset_patterns = []
+    if selected_presets:
+        send_progress("- Loading presets...")
+        preset_patterns = load_presets(selected_presets)
+
+    all_excluded_folders = DEFAULT_IGNORE_PATTERNS + exclude_folders + [p for p in preset_patterns if '/' in p or '*' in p or '.' in p]
+    # Примечание: Мы добавляем все паттерны из пресетов в список исключений. 
+    # Для простоты пока будем проверять их через fnmatch или простое вхождение, 
+    # так как текущая архитектура полагается на список строк для папок.
+    
     output_parts = []
     
     if include_tree:
@@ -62,8 +97,24 @@ def create_llm_context(
             continue
         if gitattributes_matcher(file_path):
             continue
-        if any(folder in all_excluded_folders for folder in file_path.relative_to(repo_path).parts):
+        
+        rel_path = file_path.relative_to(repo_path)
+        # Проверка через DEFAULT_IGNORE_PATTERNS и exclude_folders (точное совпадение частей пути)
+        if any(folder in (DEFAULT_IGNORE_PATTERNS + exclude_folders) for folder in rel_path.parts):
             continue
+            
+        # Проверка через пресеты и дополнительные паттерны (через fnmatch)
+        match_found = False
+        rel_path_str = rel_path.as_posix()
+        for pattern in preset_patterns:
+            if fnmatch.fnmatch(rel_path_str, pattern) or \
+               fnmatch.fnmatch(file_path.name, pattern) or \
+               any(fnmatch.fnmatch(p, pattern) for p in rel_path.parts):
+                match_found = True
+                break
+        if match_found:
+            continue
+
         if file_path.name in exclude_files:
             continue
         if file_path.suffix in exclude_ext:
