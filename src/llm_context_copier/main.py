@@ -18,7 +18,7 @@ def setup_streams_fallback():
 def run_gui():
     """Запускает графический интерфейс."""
     from PyQt6.QtWidgets import QApplication
-    from .gui import App
+    from llm_context_copier.gui import App
     
     app = QApplication(sys.argv)
     app.setOrganizationName("MyCompany")
@@ -57,7 +57,7 @@ def attach_and_run_cli():
     if not cli_attached:
         setup_streams_fallback()
 
-    from .cli import main as cli_main
+    from llm_context_copier.cli import main as cli_main
     cli_main()
 
 if __name__ == '__main__':

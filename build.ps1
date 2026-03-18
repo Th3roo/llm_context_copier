@@ -16,7 +16,7 @@ if (-not (Test-Path $MainScript)) {
 
 # --- Команда PyInstaller ---
 # Используем --paths для указания корня исходников, чтобы относительные импорты работали
-$pyinstallerCommand = "pyinstaller --onefile --windowed --name $AppName --paths src"
+$pyinstallerCommand = "pyinstaller --onefile --windowed --name $AppName --paths src --add-data `"src/llm_context_copier/presets;llm_context_copier/presets`""
 
 if (Test-Path $Icon) {
     $pyinstallerCommand += " --icon=$Icon"
