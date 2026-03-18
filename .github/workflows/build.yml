@@ -20,7 +20,8 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Build with PyInstaller
-        run: uv run pyinstaller --onefile --windowed --name RepoCopier --paths src src/llm_context_copier/main.py
+        run: |
+          uv run pyinstaller --onefile --windowed --name RepoCopier --paths src src/llm_context_copier/main.py
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -40,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y qt6-base-dev libegl1-mesa
+          sudo apt-get install -y qt6-base-dev libegl1 libgl1
           uv sync
       - name: Build with PyInstaller
         run: |
