@@ -5,12 +5,13 @@ import pyperclip
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QFileDialog, QTextEdit,
-    QCheckBox, QGroupBox, QStatusBar, QSpinBox, QFormLayout, QComboBox
+    QCheckBox, QGroupBox, QStatusBar, QSpinBox, QFormLayout, QComboBox,
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QSettings
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
-from .context_generator import create_llm_context, DEFAULT_IGNORE_PATTERNS
+from .context_generator import create_llm_context, DEFAULT_IGNORE_PATTERNS, load_presets
 from .file_utils import get_project_structure, get_gitignore_matcher, get_gitattributes_matcher
 
 
@@ -19,7 +20,7 @@ class Worker(QObject):
     error = pyqtSignal(str)
     progress = pyqtSignal(str)
 
-    def __init__(self, repo_path, include_ext, include_files, exclude_folders, exclude_files, exclude_ext, include_tree, max_chars):
+    def __init__(self, repo_path, include_ext, include_files, exclude_folders, exclude_files, exclude_ext, include_tree, max_chars, selected_presets):
         super().__init__()
         self.repo_path = repo_path
         self.include_ext = include_ext
@@ -29,12 +30,14 @@ class Worker(QObject):
         self.exclude_ext = exclude_ext
         self.include_tree = include_tree
         self.max_chars = max_chars
+        self.selected_presets = selected_presets
 
     def run(self):
         try:
             result = create_llm_context(
                 self.repo_path, self.include_ext, self.include_files, self.exclude_folders,
-                self.exclude_files, self.exclude_ext, self.include_tree, self.max_chars, self.progress
+                self.exclude_files, self.exclude_ext, self.include_tree, self.max_chars, self.progress,
+                self.selected_presets
             )
             self.finished.emit(result)
         except Exception as e:
@@ -103,7 +106,15 @@ class App(QMainWindow):
 
         settings_group.setLayout(settings_layout)
 
-        action_group = QGroupBox("3. Выполнить действие")
+        presets_group = QGroupBox("4. Пресеты игнорирования (как в GitHub)")
+        presets_layout = QVBoxLayout()
+        self.presets_list = QListWidget()
+        self.presets_list.setMaximumHeight(100)
+        self.populate_presets()
+        presets_layout.addWidget(self.presets_list)
+        presets_group.setLayout(presets_layout)
+
+        action_group = QGroupBox("5. Выполнить действие")
         action_layout = QHBoxLayout()
         self.run_button = QPushButton("🚀 Сгенерировать всё и скопировать")
         self.run_button.setStyleSheet("font-size: 14px; padding: 10px; background-color: #4CAF50; color: white;")
@@ -124,8 +135,31 @@ class App(QMainWindow):
 
         main_layout.addWidget(path_group)
         main_layout.addWidget(settings_group)
+        main_layout.addWidget(presets_group)
         main_layout.addWidget(action_group)
         main_layout.addWidget(log_group)
+
+    def populate_presets(self):
+        self.presets_list.clear()
+        presets_dir = Path(__file__).parent / "presets"
+        if presets_dir.exists():
+            for f in sorted(presets_dir.glob("*.gitignore")):
+                name = f.stem.capitalize()
+                item = QListWidgetItem(name)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                item.setCheckState(Qt.CheckState.Unchecked)
+                # Store the actual filename in data
+                item.setData(Qt.ItemDataRole.UserRole, f.name)
+                self.presets_list.addItem(item)
+        
+        # Добавляем кастомный пресет, если он есть
+        custom_path = Path("configs/custom_preset.gitignore")
+        if custom_path.exists():
+            item = QListWidgetItem("Custom (configs/custom_preset.gitignore)")
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Unchecked)
+            item.setData(Qt.ItemDataRole.UserRole, str(custom_path))
+            self.presets_list.addItem(item)
 
         self.status_bar = QStatusBar()
         self.setStatusBar(self.status_bar)
@@ -142,12 +176,19 @@ class App(QMainWindow):
         exclude_ext = [e if e.startswith('.') else '.' + e for e in self.exclude_ext_edit.text().split() if e]
         include_tree = self.tree_checkbox.isChecked()
         max_chars = self.limit_spinbox.value()
+        
+        selected_presets = []
+        for i in range(self.presets_list.count()):
+            item = self.presets_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                selected_presets.append(item.data(Qt.ItemDataRole.UserRole))
+
         self.update_path_history(repo_path)
         self.log_text.clear()
         self.log_text.append("🚀 Запускаю полную обработку...")
         self.set_ui_enabled(False)
         self.thread = QThread()
-        self.worker = Worker(repo_path, include_ext, include_files, exclude_folders, exclude_files, exclude_ext, include_tree, max_chars)
+        self.worker = Worker(repo_path, include_ext, include_files, exclude_folders, exclude_files, exclude_ext, include_tree, max_chars, selected_presets)
         self.worker.moveToThread(self.thread)
         self.thread.started.connect(self.worker.run)
         self.worker.finished.connect(self.on_finished)
@@ -166,9 +207,18 @@ class App(QMainWindow):
         self.exclude_folders_edit.setText(self.settings.value("exclude_folders", "docs assets temp"))
         self.exclude_files_edit.setText(self.settings.value("exclude_files", "package-lock.json yarn.lock"))
         self.exclude_ext_edit.setText(self.settings.value("exclude_ext", ".log .tmp .bak"))
-        self.limit_spinbox.setValue(self.settings.value("limit_per_file", 100000, type=int))
-        self.tree_checkbox.setChecked(self.settings.value("include_tree", True, type=bool))
-        self.exact_tokens_checkbox.setChecked(self.settings.value("exact_tokens", False, type=bool))
+        self.limit_spinbox.setValue(int(self.settings.value("limit_per_file", 100000)))
+        self.tree_checkbox.setChecked(self.settings.value("include_tree", "true") == "true")
+        self.exact_tokens_checkbox.setChecked(self.settings.value("exact_tokens", "false") == "true")
+        
+        # Загрузка выбранных пресетов
+        selected_presets = self.settings.value("selected_presets", [])
+        if isinstance(selected_presets, str):
+            selected_presets = [selected_presets]
+        for i in range(self.presets_list.count()):
+            item = self.presets_list.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) in selected_presets:
+                item.setCheckState(Qt.CheckState.Checked)
 
     def save_settings(self):
         self.settings.setValue("last_path", self.path_edit.currentText())
@@ -182,6 +232,14 @@ class App(QMainWindow):
         self.settings.setValue("limit_per_file", self.limit_spinbox.value())
         self.settings.setValue("include_tree", self.tree_checkbox.isChecked())
         self.settings.setValue("exact_tokens", self.exact_tokens_checkbox.isChecked())
+        
+        # Сохранение выбранных пресетов
+        selected_presets = []
+        for i in range(self.presets_list.count()):
+            item = self.presets_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                selected_presets.append(item.data(Qt.ItemDataRole.UserRole))
+        self.settings.setValue("selected_presets", selected_presets)
 
     def browse_folder(self):
         current_path = self.path_edit.currentText()
@@ -219,7 +277,16 @@ class App(QMainWindow):
         self.log_text.clear()
         self.log_text.append("🌳 Генерирую только дерево файлов...")
         exclude_folders = self.exclude_folders_edit.text().split()
-        all_exclusions = DEFAULT_IGNORE_PATTERNS + exclude_folders
+        
+        selected_presets = []
+        for i in range(self.presets_list.count()):
+            item = self.presets_list.item(i)
+            if item.checkState() == Qt.CheckState.Checked:
+                selected_presets.append(item.data(Qt.ItemDataRole.UserRole))
+        
+        preset_patterns = load_presets(selected_presets)
+        all_exclusions = DEFAULT_IGNORE_PATTERNS + exclude_folders + preset_patterns
+        
         try:
             gitignore_matcher = get_gitignore_matcher(repo_path)
             gitattributes_matcher = get_gitattributes_matcher(repo_path)

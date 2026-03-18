@@ -80,15 +80,32 @@ def get_project_structure(root_path: Path, ignored_patterns: list, gitignore_mat
     """
     tree_lines = []
 
+    def is_ignored(item: Path) -> bool:
+        if gitignore_matcher(item) or gitattributes_matcher(item):
+            return True
+        
+        rel_path = item.relative_to(root_path)
+        rel_path_str = rel_path.as_posix()
+        
+        # Простая проверка по частям пути
+        if any(part in ignored_patterns for part in rel_path.parts):
+            return True
+        
+        # Проверка через fnmatch для паттернов из пресетов
+        for pattern in ignored_patterns:
+            if fnmatch.fnmatch(rel_path_str, pattern) or \
+               fnmatch.fnmatch(item.name, pattern) or \
+               any(fnmatch.fnmatch(p, pattern) for p in rel_path.parts):
+                return True
+        return False
+
     def recurse(current_path: Path, prefix: str = ""):
-        if gitignore_matcher(current_path) or gitattributes_matcher(current_path) or any(part in ignored_patterns for part in current_path.relative_to(root_path).parts):
-            return
         try:
             items = sorted(list(current_path.iterdir()), key=lambda p: (p.is_file(), p.name.lower()))
         except (OSError, PermissionError):
             return
 
-        valid_items = [item for item in items if not (item.name in ignored_patterns or gitignore_matcher(item) or gitattributes_matcher(item))]
+        valid_items = [item for item in items if not is_ignored(item)]
         for i, item in enumerate(valid_items):
             is_last = i == (len(valid_items) - 1)
             connector = "└── " if is_last else "├── "

@@ -1,0 +1,7 @@
+# Example of a custom preset
+# In this example, we ignore all .txt and .log files, and a specific 'secrets' folder.
+
+*.txt
+*.log
+secrets/
+temp_data/
