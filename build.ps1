@@ -5,7 +5,7 @@ $pyinstallerCommand = "pyinstaller --onefile --console --name $AppName"
 
 # Переменные
 $AppName = "RepoCopier"
-$MainScript = "main.py"
+$MainScript = "src/llm_context_copier/main.py"
 $Icon = "icon.ico" # Опционально: путь к файлу иконки .ico
 
 # --- Проверки ---
@@ -15,16 +15,8 @@ if (-not (Test-Path $MainScript)) {
 }
 
 # --- Команда PyInstaller ---
-# --onefile: Собрать всё в один исполняемый файл.
-# --windowed: Не показывать консольное окно при запуске GUI.
-# --name: Имя выходного файла.
-# --icon: Путь к иконке.
-# --add-data: Включение дополнительных файлов или папок.
-#   Формат "путь_в_исходниках;путь_в_сборке".
-#   Точка '.' означает, что файл будет в корне сборки.
-#   В данном случае мы не добавляем доп. файлы, но это полезно знать.
-
-$pyinstallerCommand = "pyinstaller --onefile --windowed --name $AppName"
+# Используем --paths для указания корня исходников, чтобы относительные импорты работали
+$pyinstallerCommand = "pyinstaller --onefile --windowed --name $AppName --paths src"
 
 if (Test-Path $Icon) {
     $pyinstallerCommand += " --icon=$Icon"

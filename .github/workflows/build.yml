@@ -1,0 +1,80 @@
+name: Build and Package
+
+on:
+  push:
+    branches: [ "refactor", "dev" ]
+  pull_request:
+    branches: [ "refactor", "dev" ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies
+        run: uv sync
+      - name: Build with PyInstaller
+        run: |
+          uv run pyinstaller --onefile --windowed --name RepoCopier --paths src src/llm_context_copier/main.py
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RepoCopier-windows
+          path: dist/RepoCopier.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - name: Set up Python
+        run: uv python install
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qt6-base-dev libegl1 libgl1
+          uv sync
+      - name: Build with PyInstaller
+        run: |
+          uv run pyinstaller --onefile --windowed --name RepoCopier --paths src src/llm_context_copier/main.py
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install nfpm
+      - name: Create nfpm.yaml
+        run: |
+          cat <<EOF > nfpm.yaml
+          name: "llm-context-copier"
+          arch: "amd64"
+          platform: "linux"
+          version: "0.1.0"
+          section: "utils"
+          priority: "optional"
+          description: "A tool to copy project context for LLMs"
+          maintainer: "Th3roo"
+          contents:
+            - src: "dist/RepoCopier"
+              dst: "/usr/bin/llm-context-copier"
+          EOF
+      - name: Build .deb and .rpm
+        run: |
+          nfpm pkg --packager deb
+          nfpm pkg --packager rpm
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: RepoCopier-linux
+          path: |
+            *.deb
+            *.rpm
+            dist/RepoCopier

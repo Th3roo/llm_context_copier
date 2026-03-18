@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QThread, QObject, pyqtSignal, Qt, QSettings
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 
-from context_generator import create_llm_context, DEFAULT_IGNORE_PATTERNS
-from file_utils import get_project_structure, get_gitignore_matcher, get_gitattributes_matcher
+from .context_generator import create_llm_context, DEFAULT_IGNORE_PATTERNS
+from .file_utils import get_project_structure, get_gitignore_matcher, get_gitattributes_matcher
 
 
 class Worker(QObject):

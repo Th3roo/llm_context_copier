@@ -1,5 +1,5 @@
 from pathlib import Path
-from file_utils import get_gitignore_matcher, get_gitattributes_matcher, get_project_structure
+from .file_utils import get_gitignore_matcher, get_gitattributes_matcher, get_project_structure
 
 # --- КОНФИГУРАЦИЯ ---
 DEFAULT_IGNORE_PATTERNS = [
