@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['src\\llm_context_copier\\main.py'],
+    ['src/llm_context_copier/main.py'],
     pathex=['src'],
     binaries=[],
     datas=[('src/llm_context_copier/presets', 'llm_context_copier/presets')],
