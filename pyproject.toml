@@ -1,6 +1,6 @@
 [project]
 name = "llm-context-copier"
-version = "0.3.6"
+version = "0.3.7"
 description = "A tool to copy project context for LLMs"
 requires-python = ">=3.10"
 dependencies = [

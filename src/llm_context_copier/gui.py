@@ -48,7 +48,7 @@ class App(QMainWindow):
     def __init__(self):
         super().__init__()
         self.settings = QSettings("MyCompany", "RepoCopier")
-        self.setWindowTitle('Repo Copier для LLM v3.5')
+        self.setWindowTitle('Repo Copier для LLM v0.3.7')
         self.setGeometry(100, 100, 800, 700)
         self.setAcceptDrops(True)
         self.initUI()
@@ -76,7 +76,14 @@ class App(QMainWindow):
         settings_layout = QFormLayout()
         self.ext_edit = QLineEdit()
         settings_layout.addRow(QLabel("<b>Включить в контекст:</b>"), None)
-        settings_layout.addRow("Расширения файлов:", self.ext_edit)
+        
+        ext_row_layout = QHBoxLayout()
+        self.ext_edit = QLineEdit()
+        self.include_all_checkbox = QCheckBox("Включить всё")
+        self.include_all_checkbox.toggled.connect(self.ext_edit.setDisabled)
+        ext_row_layout.addWidget(self.ext_edit, 1)
+        ext_row_layout.addWidget(self.include_all_checkbox)
+        settings_layout.addRow("Расширения файлов:", ext_row_layout)
         self.include_files_edit = QLineEdit()
         settings_layout.addRow("Файлы по имени:", self.include_files_edit)
         self.exclude_folders_edit = QLineEdit()
@@ -169,7 +176,7 @@ class App(QMainWindow):
         repo_path = self.validate_path()
         if not repo_path:
             return
-        include_ext = self.ext_edit.text().split()
+        include_ext = ['*'] if self.include_all_checkbox.isChecked() else self.ext_edit.text().split()
         include_files = self.include_files_edit.text().split()
         exclude_folders = self.exclude_folders_edit.text().split()
         exclude_files = self.exclude_files_edit.text().split()
@@ -211,6 +218,8 @@ class App(QMainWindow):
         self.tree_checkbox.setChecked(self.settings.value("include_tree", "true") == "true")
         self.exact_tokens_checkbox.setChecked(self.settings.value("exact_tokens", "false") == "true")
         
+        self.include_all_checkbox.setChecked(self.settings.value("include_all", "false") == "true")
+        
         # Загрузка выбранных пресетов
         selected_presets = self.settings.value("selected_presets", [])
         if isinstance(selected_presets, str):
@@ -232,6 +241,8 @@ class App(QMainWindow):
         self.settings.setValue("limit_per_file", self.limit_spinbox.value())
         self.settings.setValue("include_tree", self.tree_checkbox.isChecked())
         self.settings.setValue("exact_tokens", self.exact_tokens_checkbox.isChecked())
+        
+        self.settings.setValue("include_all", self.include_all_checkbox.isChecked())
         
         # Сохранение выбранных пресетов
         selected_presets = []
@@ -337,7 +348,7 @@ class App(QMainWindow):
             self.run_button, self.tree_button, self.path_edit, self.ext_edit,
             self.include_files_edit, self.exclude_folders_edit,
             self.exclude_files_edit, self.exclude_ext_edit, self.limit_spinbox,
-            self.tree_checkbox, self.exact_tokens_checkbox
+            self.tree_checkbox, self.exact_tokens_checkbox, self.include_all_checkbox
         ]
         for w in widgets_to_toggle:
             w.setEnabled(enabled)
