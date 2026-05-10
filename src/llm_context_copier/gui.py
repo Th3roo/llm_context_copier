@@ -204,24 +204,28 @@ class App(QMainWindow):
         self.thread.start()
 
     def load_settings(self):
-        history = self.settings.value("path_history", [])
+        def get_setting(key, default):
+            val = self.settings.value(key, default)
+            return val if val is not None else default
+
+        history = get_setting("path_history", [])
         if isinstance(history, str):  # QSettings sometimes returns a single string if only one item
             history = [history]
         self.path_edit.addItems(history)
-        self.path_edit.setCurrentText(self.settings.value("last_path", str(Path.home())))
-        self.ext_edit.setText(self.settings.value("include_ext", ".py .js .html .css .md .txt .json"))
-        self.include_files_edit.setText(self.settings.value("include_files", "LICENSE Dockerfile .env.example"))
-        self.exclude_folders_edit.setText(self.settings.value("exclude_folders", "docs assets temp"))
-        self.exclude_files_edit.setText(self.settings.value("exclude_files", "package-lock.json yarn.lock"))
-        self.exclude_ext_edit.setText(self.settings.value("exclude_ext", ".log .tmp .bak"))
-        self.limit_spinbox.setValue(int(self.settings.value("limit_per_file", 100000)))
-        self.tree_checkbox.setChecked(self.settings.value("include_tree", "true") == "true")
-        self.exact_tokens_checkbox.setChecked(self.settings.value("exact_tokens", "false") == "true")
+        self.path_edit.setCurrentText(get_setting("last_path", str(Path.home())))
+        self.ext_edit.setText(get_setting("include_ext", ".py .js .html .css .md .txt .json"))
+        self.include_files_edit.setText(get_setting("include_files", "LICENSE Dockerfile .env.example"))
+        self.exclude_folders_edit.setText(get_setting("exclude_folders", "docs assets temp"))
+        self.exclude_files_edit.setText(get_setting("exclude_files", "package-lock.json yarn.lock"))
+        self.exclude_ext_edit.setText(get_setting("exclude_ext", ".log .tmp .bak"))
+        self.limit_spinbox.setValue(int(get_setting("limit_per_file", 100000)))
+        self.tree_checkbox.setChecked(get_setting("include_tree", "true") == "true")
+        self.exact_tokens_checkbox.setChecked(get_setting("exact_tokens", "false") == "true")
         
-        self.include_all_checkbox.setChecked(self.settings.value("include_all", "false") == "true")
+        self.include_all_checkbox.setChecked(get_setting("include_all", "false") == "true")
         
         # Загрузка выбранных пресетов
-        selected_presets = self.settings.value("selected_presets", [])
+        selected_presets = get_setting("selected_presets", [])
         if isinstance(selected_presets, str):
             selected_presets = [selected_presets]
         for i in range(self.presets_list.count()):
